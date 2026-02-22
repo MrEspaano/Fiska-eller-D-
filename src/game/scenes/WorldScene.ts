@@ -105,6 +105,7 @@ export class WorldScene extends Phaser.Scene {
     aimCenter: null,
     isAiming: false
   };
+  private manualAimPoint: Point | null = null;
   private isCastZoneArmed = false;
 
   private activeFishing: FishingSession | null = null;
@@ -1150,20 +1151,20 @@ export class WorldScene extends Phaser.Scene {
   private refreshDynamicCastZone(): void {
     const sourcePoint = this.boatState.onBoat ? this.boatState.position : { x: this.player.x, y: this.player.y };
 
-    let aim: Point | null = null;
     const pointer = this.input.activePointer;
     const pointerInCanvas = pointer
       && pointer.x >= 0
       && pointer.x <= this.scale.width
       && pointer.y >= 0
       && pointer.y <= this.scale.height;
-    if (pointerInCanvas) {
-      aim = { x: pointer.worldX, y: pointer.worldY };
+    if (pointerInCanvas && !this.inputSystem.isTouchingVirtualControls()) {
+      this.manualAimPoint = { x: pointer.worldX, y: pointer.worldY };
     }
 
-    this.dynamicCastZone = this.castZoneSystem.compute(sourcePoint, aim);
+    this.dynamicCastZone = this.castZoneSystem.compute(sourcePoint, this.manualAimPoint);
     if (!this.dynamicCastZone.visible) {
       this.isCastZoneArmed = false;
+      this.manualAimPoint = null;
     }
   }
 

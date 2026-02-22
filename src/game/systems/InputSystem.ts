@@ -15,6 +15,7 @@ export class InputSystem {
   private readonly mobileDirections: MobileDirections = { up: false, down: false, left: false, right: false };
   private actionPressed = false;
   private menuPressed = false;
+  private readonly activeControlPointers = new Set<number>();
 
   constructor(scene: Phaser.Scene, private readonly root: HTMLElement) {
     this.cursors = scene.input.keyboard?.createCursorKeys() ?? ({} as Phaser.Types.Input.Keyboard.CursorKeys);
@@ -50,6 +51,10 @@ export class InputSystem {
       this.menuPressed = false;
     }
     return toggle;
+  }
+
+  isTouchingVirtualControls(): boolean {
+    return this.activeControlPointers.size > 0;
   }
 
   private keyDown(key?: Phaser.Input.Keyboard.Key): boolean {
@@ -104,11 +109,11 @@ export class InputSystem {
       this.mobileDirections.down = false;
     });
 
-    menuBtn.addEventListener("pointerdown", () => {
+    this.attachTapButton(menuBtn, () => {
       this.menuPressed = true;
     });
 
-    actionBtn.addEventListener("pointerdown", () => {
+    this.attachTapButton(actionBtn, () => {
       this.actionPressed = true;
     });
   }
@@ -119,11 +124,31 @@ export class InputSystem {
     onRelease: () => void
   ): void {
     button.addEventListener("pointerdown", (ev) => {
+      this.activeControlPointers.add(ev.pointerId);
       onPress();
       button.setPointerCapture(ev.pointerId);
     });
 
-    const release = () => onRelease();
+    const release = (ev: PointerEvent) => {
+      this.activeControlPointers.delete(ev.pointerId);
+      onRelease();
+    };
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("pointerleave", release);
+    button.addEventListener("lostpointercapture", release);
+  }
+
+  private attachTapButton(button: HTMLButtonElement, onTap: () => void): void {
+    button.addEventListener("pointerdown", (ev) => {
+      this.activeControlPointers.add(ev.pointerId);
+      onTap();
+      button.setPointerCapture(ev.pointerId);
+    });
+
+    const release = (ev: PointerEvent) => {
+      this.activeControlPointers.delete(ev.pointerId);
+    };
     button.addEventListener("pointerup", release);
     button.addEventListener("pointercancel", release);
     button.addEventListener("pointerleave", release);

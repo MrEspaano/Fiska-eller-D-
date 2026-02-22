@@ -26,6 +26,29 @@ body,
   position: relative;
 }
 
+.mobile-game-title {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  display: none;
+  pointer-events: none;
+  padding: 6px 10px;
+  border: 2px solid #111;
+  background: rgba(26, 31, 36, 0.86);
+  color: #f2e2c7;
+  font-family: "Impact", "Copperplate", "Press Start 2P", monospace;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  text-shadow:
+    0 1px 0 #9a2f2f,
+    0 2px 0 #6e1f1f,
+    0 0 5px rgba(186, 62, 62, 0.35);
+  white-space: nowrap;
+}
+
 canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -232,9 +255,12 @@ button:hover {
 }
 
 .dpad-grid {
-  width: 210px;
+  width: 236px;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-areas:
+    ". up ."
+    "left down right";
   gap: 10px;
 }
 
@@ -260,6 +286,22 @@ button:hover {
   display: grid;
   place-items: center;
   padding: 0;
+}
+
+.dpad-btn.up {
+  grid-area: up;
+}
+
+.dpad-btn.left {
+  grid-area: left;
+}
+
+.dpad-btn.down {
+  grid-area: down;
+}
+
+.dpad-btn.right {
+  grid-area: right;
 }
 
 .dpad-btn:active,
@@ -301,5 +343,15 @@ button:hover {
 @media (min-width: 1024px) {
   .mobile-controls {
     display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .mobile-game-title {
+    display: block;
+  }
+
+  .hud {
+    top: 48px;
   }
 }
