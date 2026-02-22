@@ -8,6 +8,7 @@ interface RollOptions {
   nearShadowSpeciesId?: string;
   now: number;
   buffState: BuffState;
+  levelCatchBonus?: number;
 }
 
 export type FishingSessionEvent = "waiting" | "bite_started" | "bite_missed" | "ready";
@@ -125,7 +126,10 @@ export class FishingSystem {
     };
   }
 
-  resolveSession(session: FishingSession, options: { now: number; buffState: BuffState }): FishingResult {
+  resolveSession(
+    session: FishingSession,
+    options: { now: number; buffState: BuffState; levelCatchBonus?: number }
+  ): FishingResult {
     if (session.phase !== "resolve") {
       return {
         success: false,
@@ -137,6 +141,7 @@ export class FishingSystem {
     return this.rollCatch(session.attempt, {
       now: options.now,
       buffState: options.buffState,
+      levelCatchBonus: options.levelCatchBonus,
       nearShadowId: session.nearShadowId,
       nearShadowSpeciesId: session.nearShadowSpeciesId
     });
@@ -154,7 +159,8 @@ export class FishingSystem {
   rollCatch(attempt: FishingAttempt, options: RollOptions): FishingResult {
     const buffBonus = this.buffSystem.getCatchBonus(options.buffState, options.now);
     const shadowBonus = options.nearShadowId ? 0.3 : 0;
-    const catchChance = Math.min(0.95, this.baseCatchChance + buffBonus + shadowBonus);
+    const levelBonus = options.levelCatchBonus ?? 0;
+    const catchChance = Math.min(0.95, this.baseCatchChance + buffBonus + shadowBonus + levelBonus);
 
     if (Math.random() > catchChance) {
       return {

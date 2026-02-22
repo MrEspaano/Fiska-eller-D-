@@ -4,6 +4,9 @@ import { CatchLimitSystem } from "./systems/CatchLimitSystem";
 import { CookingSystem, type CookSource } from "./systems/CookingSystem";
 import { FreezerSystem } from "./systems/FreezerSystem";
 import { SaveSystem } from "./systems/SaveSystem";
+import { ProgressionSystem } from "./systems/ProgressionSystem";
+import type { WaterId } from "./types";
+import { getSpeciesById } from "./data/fish";
 
 export class GameState {
   readonly saveSystem = new SaveSystem();
@@ -11,8 +14,11 @@ export class GameState {
   readonly catchLimitSystem = new CatchLimitSystem();
   readonly freezerSystem = new FreezerSystem();
   readonly cookingSystem = new CookingSystem();
+  readonly progressionSystem = new ProgressionSystem();
   state: SaveState;
   lastMessage = "Välkommen till sjön.";
+  private pendingProgressMessages: string[] = [];
+  private pendingUnlockWaters: WaterId[] = [];
 
   constructor() {
     this.state = this.saveSystem.load();
@@ -27,12 +33,15 @@ export class GameState {
   }
 
   applyFishingResult(result: FishingResult): void {
+    this.pendingProgressMessages = [];
+    this.pendingUnlockWaters = [];
     this.lastMessage = result.message;
     if (!result.success || !result.fishId) {
       this.persist();
       return;
     }
 
+    const wasDiscovered = this.state.speciesLog[result.fishId]?.discovered ?? false;
     this.state.score += result.pointsAwarded;
     this.state.inventory.carriedCount += 1;
     this.state.inventory.carriedBySpecies[result.fishId] = (this.state.inventory.carriedBySpecies[result.fishId] ?? 0) + 1;
@@ -43,6 +52,28 @@ export class GameState {
       maxPoints: Math.max(log.maxPoints, result.pointsAwarded),
       count: log.count + 1
     };
+
+    const species = getSpeciesById(result.fishId);
+    const progressionResult = this.progressionSystem.applyCatchXp({
+      success: result.success,
+      pointsAwarded: result.pointsAwarded,
+      wasFirstCatch: !wasDiscovered,
+      species,
+      progression: this.state.progression,
+      unlocks: this.state.unlocks
+    });
+    this.state.progression = progressionResult.progression;
+    this.state.unlocks = { unlockedWaters: progressionResult.unlocks.unlockedWaters };
+    this.pendingProgressMessages = progressionResult.messages;
+    this.pendingUnlockWaters = progressionResult.newlyUnlocked;
+
+    const xpMessage = progressionResult.reward.total > 0
+      ? ` (+${progressionResult.reward.total} XP)`
+      : "";
+    this.lastMessage = `${result.message}${xpMessage}`;
+    if (progressionResult.messages.length > 0) {
+      this.lastMessage = progressionResult.messages[progressionResult.messages.length - 1];
+    }
 
     if (!this.canFish()) {
       this.lastMessage = "Du bär 15 fiskar. Gå till stugan och lägg i frysen.";
@@ -100,5 +131,25 @@ export class GameState {
   setSfxVolume(sfxVolume: number): void {
     this.state.settings.sfxVolume = Math.max(0, Math.min(100, Math.round(sfxVolume / 5) * 5));
     this.persist();
+  }
+
+  consumeProgressMessages(): string[] {
+    const messages = [...this.pendingProgressMessages];
+    this.pendingProgressMessages = [];
+    return messages;
+  }
+
+  consumeNewlyUnlockedWaters(): WaterId[] {
+    const waters = [...this.pendingUnlockWaters];
+    this.pendingUnlockWaters = [];
+    return waters;
+  }
+
+  getCurrentLevelModifiers(): { catchChanceBonus: number; castStabilityBonus: number } {
+    return this.progressionSystem.getLevelModifiers(this.state.progression.level);
+  }
+
+  isWaterUnlocked(waterId: WaterId): boolean {
+    return this.state.unlocks.unlockedWaters.includes(waterId);
   }
 }

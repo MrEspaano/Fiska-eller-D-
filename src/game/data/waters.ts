@@ -28,6 +28,39 @@ export const WATER_BODIES: WaterBody[] = [
       { id: "river_run", polygon: [p(44, 11), p(45, 13), p(45, 17), p(45, 22), p(45, 26), p(44, 28), p(43, 26), p(43, 22), p(43, 17), p(43, 13)] }
     ],
     fishableAreas: [p(43, 7), p(47, 13), p(46, 21), p(46, 28), p(43, 33), p(40, 18)]
+  },
+  {
+    id: "skogstjarn",
+    kind: "lake",
+    polygon: [p(4, 27), p(8, 25), p(12, 27), p(12, 32), p(9, 36), p(4, 35), p(2, 31)],
+    zoneDefs: [
+      { id: "reed_edge", polygon: [p(4, 28), p(8, 26), p(11, 28), p(11, 32), p(9, 35), p(4, 34), p(3, 31)] },
+      { id: "general", polygon: [p(5, 29), p(8, 27), p(10, 29), p(10, 32), p(8, 34), p(5, 33), p(4, 31)] },
+      { id: "deep_center", polygon: [p(7, 30), p(8, 29), p(9, 30), p(9, 32), p(8, 33), p(7, 32)] }
+    ],
+    fishableAreas: [p(4, 29), p(8, 27), p(11, 29), p(10, 34), p(5, 34), p(3, 31)]
+  },
+  {
+    id: "klippsjon",
+    kind: "lake",
+    polygon: [p(49, 3), p(55, 2), p(58, 5), p(57, 10), p(52, 11), p(48, 8)],
+    zoneDefs: [
+      { id: "reed_edge", polygon: [p(50, 4), p(55, 3), p(57, 6), p(56, 9), p(52, 10), p(49, 8)] },
+      { id: "general", polygon: [p(51, 5), p(54, 4), p(56, 6), p(55, 8), p(53, 9), p(50, 8)] },
+      { id: "deep_center", polygon: [p(52, 6), p(54, 6), p(55, 7), p(54, 8), p(52, 8), p(51, 7)] }
+    ],
+    fishableAreas: [p(50, 4), p(54, 3), p(57, 6), p(56, 9), p(52, 10), p(49, 7)]
+  },
+  {
+    id: "myrkanal",
+    kind: "river",
+    polygon: [p(53, 23), p(57, 24), p(58, 28), p(57, 34), p(54, 37), p(51, 35), p(52, 29)],
+    zoneDefs: [
+      { id: "reed_edge", polygon: [p(53, 24), p(56, 25), p(57, 28), p(56, 33), p(54, 36), p(52, 34), p(52, 29)] },
+      { id: "general", polygon: [p(54, 25), p(56, 26), p(56, 29), p(55, 33), p(54, 35), p(53, 33), p(53, 29)] },
+      { id: "river_run", polygon: [p(54, 27), p(55, 28), p(55, 31), p(54, 33), p(53, 31), p(53, 28)] }
+    ],
+    fishableAreas: [p(53, 24), p(56, 26), p(57, 30), p(55, 35), p(52, 34), p(52, 29)]
   }
 ];
 

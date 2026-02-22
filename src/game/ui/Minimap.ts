@@ -14,6 +14,7 @@ interface MinimapInit {
 interface MinimapUpdateParams {
   player: Point;
   facing: FacingDirection;
+  markers?: Point[];
 }
 
 export class Minimap {
@@ -80,6 +81,9 @@ export class Minimap {
     );
 
     this.dynamicCtx.clearRect(0, 0, this.model.viewportWidth, this.model.viewportHeight);
+    if (params.markers?.length) {
+      this.drawMarkers(params.markers, view.sourceX, view.sourceY);
+    }
     this.drawPlayer(params.facing, Math.round(view.playerScreenX), Math.round(view.playerScreenY));
   }
 
@@ -189,5 +193,24 @@ export class Minimap {
       return;
     }
     this.dynamicCtx.fillRect(x + 4, y - 1, 1, 2);
+  }
+
+  private drawMarkers(markers: Point[], sourceX: number, sourceY: number): void {
+    const scale = this.model.scale;
+    this.dynamicCtx.fillStyle = "#f4d27f";
+    this.dynamicCtx.strokeStyle = "rgba(0,0,0,0.7)";
+    this.dynamicCtx.lineWidth = 1;
+    for (const marker of markers) {
+      const sx = Math.round(marker.x * scale - sourceX);
+      const sy = Math.round(marker.y * scale - sourceY);
+      if (sx < -3 || sy < -3 || sx > this.model.viewportWidth + 3 || sy > this.model.viewportHeight + 3) {
+        continue;
+      }
+
+      this.dynamicCtx.beginPath();
+      this.dynamicCtx.arc(sx, sy, 2, 0, Math.PI * 2);
+      this.dynamicCtx.fill();
+      this.dynamicCtx.stroke();
+    }
   }
 }

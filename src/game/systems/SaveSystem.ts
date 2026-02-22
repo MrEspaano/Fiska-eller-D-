@@ -1,5 +1,11 @@
 import type { SaveState } from "../types";
 import { FISH_SPECIES } from "../data/fish";
+import {
+  clampProgressionState,
+  createDefaultProgressionState,
+  createDefaultUnlockState,
+  normalizeUnlockState
+} from "../data/progression";
 
 const SAVE_KEY = "fiske2d_save_v1";
 
@@ -17,6 +23,8 @@ export function createDefaultSaveState(): SaveState {
     speciesLog: defaultSpeciesLog(),
     freezer: { bySpecies: {} },
     inventory: { carriedCount: 0, carriedBySpecies: {} },
+    progression: createDefaultProgressionState(),
+    unlocks: createDefaultUnlockState(),
     settings: { soundOn: true, musicVolume: 70, sfxVolume: 80 },
     buffState: { stacks: 0, expiresAt: 0 }
   };
@@ -37,6 +45,8 @@ export class SaveSystem {
         ...parsed,
         freezer: { ...defaults.freezer, ...parsed.freezer },
         inventory: { ...defaults.inventory, ...parsed.inventory },
+        progression: clampProgressionState(parsed.progression),
+        unlocks: normalizeUnlockState(parsed.unlocks),
         settings: { ...defaults.settings, ...parsed.settings },
         buffState: { ...defaults.buffState, ...parsed.buffState },
         speciesLog: { ...defaults.speciesLog, ...parsed.speciesLog }

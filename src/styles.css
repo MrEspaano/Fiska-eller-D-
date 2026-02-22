@@ -74,6 +74,24 @@ canvas {
   font-size: 10px;
 }
 
+.hud-xp-wrap {
+  margin: 4px 0 6px;
+  width: 100%;
+  height: 8px;
+  border: 1px solid #101418;
+  background: rgba(18, 22, 26, 0.9);
+}
+
+.hud-xp-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #d2b85c, #e8d998);
+}
+
+.hud-next-unlock {
+  opacity: 0.86;
+  margin-bottom: 4px;
+}
+
 .minimap {
   position: absolute;
   top: 12px;
@@ -159,6 +177,28 @@ canvas {
 
 .menu-overlay.show {
   display: grid;
+}
+
+.progress-popup {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  z-index: 39;
+  pointer-events: none;
+  display: none;
+  min-width: min(90vw, 520px);
+  padding: 10px 14px;
+  border: 2px solid #111;
+  background: rgba(29, 36, 41, 0.92);
+  color: #f1e4bf;
+  text-align: center;
+  font-size: 11px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.progress-popup.show {
+  display: block;
 }
 
 .menu-panel {

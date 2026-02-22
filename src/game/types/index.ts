@@ -1,4 +1,4 @@
-export type WaterId = "lake" | "river";
+export type WaterId = "lake" | "river" | "skogstjarn" | "klippsjon" | "myrkanal";
 
 export type ZoneId = "reed_edge" | "general" | "deep_center" | "river_run";
 
@@ -24,6 +24,14 @@ export interface HouseLayout {
   bounds: RectZone;
   doorTrigger: RectZone;
   doorPosition: Point;
+}
+
+export interface UnlockGateLayout {
+  waterId: WaterId;
+  lockedArea: RectZone;
+  barrier: RectZone;
+  signPosition: Point;
+  markerPosition: Point;
 }
 
 export interface InteractionZones {
@@ -161,11 +169,42 @@ export interface SpeciesLogEntry {
   count: number;
 }
 
+export interface ProgressionState {
+  level: number;
+  xp: number;
+  xpToNext: number;
+}
+
+export interface UnlockRule {
+  waterId: WaterId;
+  requiredLevel: number;
+  nameSv: string;
+}
+
+export interface XpRewardBreakdown {
+  base: number;
+  firstCatchBonus: number;
+  rareBonus: number;
+  total: number;
+}
+
+export interface UnlockState {
+  unlockedWaters: WaterId[];
+  newlyUnlocked?: WaterId[];
+}
+
+export interface LevelModifiers {
+  catchChanceBonus: number;
+  castStabilityBonus: number;
+}
+
 export interface SaveState {
   score: number;
   speciesLog: Record<string, SpeciesLogEntry>;
   freezer: FreezerState;
   inventory: InventoryState;
+  progression: ProgressionState;
+  unlocks: UnlockState;
   settings: {
     soundOn: boolean;
     musicVolume: number;

@@ -6,7 +6,8 @@ import type {
   InteractionZones,
   NpcPlacement,
   Point,
-  RectZone
+  RectZone,
+  UnlockGateLayout
 } from "../types";
 
 export const WORLD_W_TILES = 60;
@@ -74,6 +75,30 @@ export const WORLD_NPCS: NpcPlacement[] = [
   { id: "npc-guide", x: pointFromTile(11, 11).x, y: pointFromTile(11, 11).y, facing: "down", variant: 2 },
   { id: "npc-ungdom", x: pointFromTile(45, 10).x, y: pointFromTile(45, 10).y, facing: "right", variant: 3 },
   { id: "npc-brygga", x: pointFromTile(33, 33).x, y: pointFromTile(33, 33).y, facing: "up", variant: 4 }
+];
+
+export const UNLOCK_GATES: UnlockGateLayout[] = [
+  {
+    waterId: "skogstjarn",
+    lockedArea: rectFromTiles(0, 23, 15, 17),
+    barrier: rectFromTiles(14, 25, 1, 9),
+    signPosition: pointFromTile(14, 29),
+    markerPosition: pointFromTile(8, 31)
+  },
+  {
+    waterId: "klippsjon",
+    lockedArea: rectFromTiles(47, 0, 13, 14),
+    barrier: rectFromTiles(46, 4, 1, 8),
+    signPosition: pointFromTile(46, 8),
+    markerPosition: pointFromTile(54, 6)
+  },
+  {
+    waterId: "myrkanal",
+    lockedArea: rectFromTiles(50, 22, 10, 18),
+    barrier: rectFromTiles(49, 24, 1, 10),
+    signPosition: pointFromTile(49, 29),
+    markerPosition: pointFromTile(54, 31)
+  }
 ];
 
 export const CABIN_INTERACTION_ZONES: InteractionZones = {

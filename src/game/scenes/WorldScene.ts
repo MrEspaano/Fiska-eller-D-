@@ -4,6 +4,7 @@ import {
   CAMPFIRES,
   DOCKS,
   HOUSE_LAYOUT,
+  UNLOCK_GATES,
   WORLD_H,
   WORLD_H_TILES,
   WORLD_NPCS,
@@ -13,6 +14,7 @@ import {
   pointFromTile
 } from "../data/layout";
 import { TILE_SIZE, WATER_BODIES, distance, pointInPolygon } from "../data/waters";
+import { getUnlockRuleForWater } from "../data/progression";
 import { GameState } from "../GameState";
 import {
   CAST_MS,
@@ -35,6 +37,8 @@ import { MenuOverlay, type MenuMode } from "../ui/MenuOverlay";
 import { shouldHandleWorldAction, shouldOpenWorldPauseMenu } from "../ui/menuGuards";
 import { Minimap } from "../ui/Minimap";
 import { shouldShowMinimap } from "../ui/minimapRender";
+import { ProgressPopup } from "../ui/ProgressPopup";
+import { getBlockedGateForPoint, getLockedGates } from "../systems/WorldGatingSystem";
 
 const PLAYER_SPEED = 180;
 const CAMERA_TARGET_TILES_X = 18;
@@ -67,6 +71,7 @@ export class WorldScene extends Phaser.Scene {
   private freezerPanel!: FreezerPanel;
   private menu!: MenuOverlay;
   private minimap!: Minimap;
+  private progressPopup!: ProgressPopup;
   private audio!: AudioSystem;
   private menuOpen = false;
   private menuMode: MenuMode = "boot";
@@ -87,7 +92,10 @@ export class WorldScene extends Phaser.Scene {
   private fishingVfxGraphics!: Phaser.GameObjects.Graphics;
   private boatGraphics!: Phaser.GameObjects.Graphics;
   private boatFrontGraphics!: Phaser.GameObjects.Graphics;
+  private gateGraphics!: Phaser.GameObjects.Graphics;
+  private unlockMarkerGraphics!: Phaser.GameObjects.Graphics;
   private houseDoorGlow!: Phaser.GameObjects.Rectangle;
+  private gateSigns = new Map<WaterId, Phaser.GameObjects.Text>();
   private campfireFlames: CampfireFlame[] = [];
   private chimneySmoke: ChimneySmokePuff[] = [];
   private chimneySmokeOrigin: Point | null = null;
@@ -123,12 +131,13 @@ export class WorldScene extends Phaser.Scene {
   private isCastZoneArmed = false;
 
   private activeFishing: FishingSession | null = null;
+  private unlockMarkerUntil = new Map<WaterId, number>();
 
   private boatState: BoatState = this.boatSystem.createInitialState();
-  private boatPositions: Record<WaterId, Point> = {
-    lake: this.boatSystem.getBoatSpawn("lake"),
-    river: this.boatSystem.getBoatSpawn("river")
-  };
+  private boatPositions: Partial<Record<WaterId, Point>> = DOCKS.reduce((acc, dock) => {
+    acc[dock.waterId] = this.boatSystem.getBoatSpawn(dock.waterId);
+    return acc;
+  }, {} as Partial<Record<WaterId, Point>>);
 
   constructor() {
     super("WorldScene");
@@ -158,6 +167,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.inputSystem = new InputSystem(this, root);
     this.hud = new Hud(root);
+    this.progressPopup = new ProgressPopup(root);
     this.minimap = new Minimap(root, {
       worldWidth: WORLD_W,
       worldHeight: WORLD_H,
@@ -231,11 +241,16 @@ export class WorldScene extends Phaser.Scene {
     this.fishingVfxGraphics = this.add.graphics();
     this.boatGraphics = this.add.graphics();
     this.boatFrontGraphics = this.add.graphics();
+    this.gateGraphics = this.add.graphics();
+    this.unlockMarkerGraphics = this.add.graphics();
     this.castZoneGraphics.setDepth(22);
     this.shadowGraphics.setDepth(6);
     this.fishingVfxGraphics.setDepth(23);
     this.boatGraphics.setDepth(9);
     this.boatFrontGraphics.setDepth(13);
+    this.gateGraphics.setDepth(17);
+    this.unlockMarkerGraphics.setDepth(26);
+    this.createGateSigns();
 
     this.shadows.initialize(this.time.now);
 
@@ -256,10 +271,12 @@ export class WorldScene extends Phaser.Scene {
     this.events.once("shutdown", () => {
       this.menu.destroy();
       this.minimap.destroy();
+      this.progressPopup.destroy();
     });
     this.events.once("destroy", () => {
       this.menu.destroy();
       this.minimap.destroy();
+      this.progressPopup.destroy();
     });
   }
 
@@ -290,8 +307,11 @@ export class WorldScene extends Phaser.Scene {
       this.updateChimneySmoke(delta);
       this.drawShadows();
       this.drawBoats();
+      this.drawLockedGates();
+      this.drawUnlockMarkers(now);
       this.drawCastZone(now);
       this.drawFishingVfx(now);
+      this.progressPopup.hide();
       this.updateDoorGlow(now);
       this.cameras.main.setScroll(Math.round(this.cameras.main.scrollX), Math.round(this.cameras.main.scrollY));
       this.hud.render(this.state.state, this.message, this.state.state.buffState);
@@ -331,15 +351,19 @@ export class WorldScene extends Phaser.Scene {
 
     this.drawShadows();
     this.drawBoats();
+    this.drawLockedGates();
+    this.drawUnlockMarkers(now);
     this.drawCastZone(now);
     this.drawFishingVfx(now);
+    this.progressPopup.update(now);
     this.updateDoorGlow(now);
     this.cameras.main.setScroll(Math.round(this.cameras.main.scrollX), Math.round(this.cameras.main.scrollY));
     if (shouldShowMinimap("world", this.menuOpen)) {
       this.minimap.show();
       this.minimap.update({
         player: { x: this.player.x, y: this.player.y },
-        facing: this.facing
+        facing: this.facing,
+        markers: this.getActiveUnlockMarkers(now)
       });
     } else {
       this.minimap.hide();
@@ -1067,6 +1091,9 @@ export class WorldScene extends Phaser.Scene {
 
     for (const dock of DOCKS) {
       const pos = this.boatPositions[dock.waterId];
+      if (!pos) {
+        continue;
+      }
       const highlight = this.boatState.onBoat && this.boatState.currentWaterId === dock.waterId;
       this.drawBoatShape(pos, highlight);
     }
@@ -1189,6 +1216,109 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private createGateSigns(): void {
+    for (const gate of UNLOCK_GATES) {
+      const sign = this.add.text(gate.signPosition.x - 38, gate.signPosition.y - 28, "", {
+        fontFamily: "monospace",
+        fontSize: "10px",
+        color: "#f0dfaf",
+        backgroundColor: "#273038",
+        padding: { left: 4, right: 4, top: 2, bottom: 2 }
+      });
+      sign.setDepth(18);
+      sign.setVisible(false);
+      this.gateSigns.set(gate.waterId, sign);
+    }
+  }
+
+  private drawLockedGates(): void {
+    this.gateGraphics.clear();
+    const lockedGates = getLockedGates(UNLOCK_GATES, this.state.state.unlocks.unlockedWaters);
+    const lockedSet = new Set(lockedGates.map((gate) => gate.waterId));
+
+    for (const gate of lockedGates) {
+      const b = gate.barrier;
+      this.gateGraphics.fillStyle(0x6a553a, 0.95);
+      this.gateGraphics.fillRect(b.x, b.y, b.width, b.height);
+
+      const horizontal = b.width >= b.height;
+      const postCount = Math.max(2, Math.floor((horizontal ? b.width : b.height) / 18));
+      for (let i = 0; i <= postCount; i += 1) {
+        const t = postCount === 0 ? 0 : i / postCount;
+        const px = horizontal ? b.x + t * b.width : b.x + b.width / 2;
+        const py = horizontal ? b.y + b.height / 2 : b.y + t * b.height;
+        this.gateGraphics.fillStyle(0x3f2f20, 1);
+        this.gateGraphics.fillRect(Math.round(px) - 2, Math.round(py) - 2, 4, 4);
+      }
+
+      this.gateGraphics.lineStyle(2, 0x221913, 0.95);
+      this.gateGraphics.strokeRect(b.x, b.y, b.width, b.height);
+
+      const sign = this.gateSigns.get(gate.waterId);
+      const rule = getUnlockRuleForWater(gate.waterId);
+      if (sign) {
+        sign.setText(`Kräver nivå ${rule?.requiredLevel ?? 1}`);
+        sign.setVisible(true);
+      }
+    }
+
+    for (const [waterId, sign] of this.gateSigns.entries()) {
+      if (!lockedSet.has(waterId)) {
+        sign.setVisible(false);
+      }
+    }
+  }
+
+  private drawUnlockMarkers(now: number): void {
+    this.unlockMarkerGraphics.clear();
+    const markers = this.getActiveUnlockMarkers(now);
+    if (markers.length === 0) {
+      return;
+    }
+
+    const pulse = 0.35 + (Math.sin(now * 0.01) + 1) * 0.2;
+    for (const marker of markers) {
+      this.unlockMarkerGraphics.fillStyle(0xf0d381, 0.2 + pulse * 0.25);
+      this.unlockMarkerGraphics.fillCircle(marker.x, marker.y, 24 + pulse * 8);
+      this.unlockMarkerGraphics.lineStyle(2, 0xf6e6aa, 0.85);
+      this.unlockMarkerGraphics.strokeCircle(marker.x, marker.y, 14 + pulse * 5);
+      this.unlockMarkerGraphics.lineStyle(2, 0xf6e6aa, 0.7);
+      this.unlockMarkerGraphics.beginPath();
+      this.unlockMarkerGraphics.moveTo(marker.x - 8, marker.y);
+      this.unlockMarkerGraphics.lineTo(marker.x + 8, marker.y);
+      this.unlockMarkerGraphics.moveTo(marker.x, marker.y - 8);
+      this.unlockMarkerGraphics.lineTo(marker.x, marker.y + 8);
+      this.unlockMarkerGraphics.strokePath();
+    }
+  }
+
+  private getActiveUnlockMarkers(now: number): Point[] {
+    const points: Point[] = [];
+    for (const [waterId, expiresAt] of this.unlockMarkerUntil.entries()) {
+      if (now >= expiresAt) {
+        this.unlockMarkerUntil.delete(waterId);
+        continue;
+      }
+      const gate = UNLOCK_GATES.find((entry) => entry.waterId === waterId);
+      if (gate) {
+        points.push(gate.markerPosition);
+      }
+    }
+    return points;
+  }
+
+  private pushProgressFeedback(now: number): void {
+    const messages = this.state.consumeProgressMessages();
+    for (const message of messages) {
+      this.progressPopup.enqueue(message);
+    }
+
+    const unlocked = this.state.consumeNewlyUnlockedWaters();
+    for (const waterId of unlocked) {
+      this.unlockMarkerUntil.set(waterId, now + 16000);
+    }
+  }
+
   private updateDoorGlow(now: number): void {
     const playerPoint = { x: this.player.x, y: this.player.y };
     const pulse = 0.1 + (Math.sin(now * 0.008) + 1) * 0.16;
@@ -1221,6 +1351,15 @@ export class WorldScene extends Phaser.Scene {
     }
 
     if (isPointInRect(next, HOUSE_LAYOUT.bounds)) {
+      return;
+    }
+
+    const blockedGate = getBlockedGateForPoint(next, UNLOCK_GATES, this.state.state.unlocks.unlockedWaters);
+    if (blockedGate) {
+      const unlockRule = getUnlockRuleForWater(blockedGate.waterId);
+      const levelReq = unlockRule?.requiredLevel ?? 1;
+      const areaName = unlockRule?.nameSv ?? "okänt område";
+      this.message = `${areaName} är låst. Kräver nivå ${levelReq}.`;
       return;
     }
 
@@ -1272,6 +1411,13 @@ export class WorldScene extends Phaser.Scene {
     } else {
       this.dynamicCastZone = this.castZoneSystem.compute(sourcePoint, this.manualAimPoint);
     }
+    const levelModifiers = this.state.getCurrentLevelModifiers();
+    this.dynamicCastZone.radius = 30 + Math.round(levelModifiers.castStabilityBonus * 25);
+    if (this.dynamicCastZone.visible && !this.state.isWaterUnlocked(this.dynamicCastZone.waterId)) {
+      this.dynamicCastZone.visible = false;
+      this.dynamicCastZone.isAiming = false;
+      this.dynamicCastZone.aimCenter = null;
+    }
     if (!this.dynamicCastZone.visible) {
       this.isCastZoneArmed = false;
       this.manualAimPoint = null;
@@ -1300,7 +1446,8 @@ export class WorldScene extends Phaser.Scene {
 
       const result = this.fishingSystem.resolveSession(this.activeFishing, {
         now,
-        buffState: this.state.state.buffState
+        buffState: this.state.state.buffState,
+        levelCatchBonus: this.state.getCurrentLevelModifiers().catchChanceBonus
       });
 
       if (result.consumedShadowId) {
@@ -1308,7 +1455,8 @@ export class WorldScene extends Phaser.Scene {
       }
 
       this.state.applyFishingResult(result);
-      this.message = result.message;
+      this.message = this.state.lastMessage;
+      this.pushProgressFeedback(now);
       if (result.success && result.fishId) {
         const species = getSpeciesById(result.fishId);
         this.catchOverlay.showCatch(result.fishId, result.pointsAwarded, species?.rarity === "rare");
@@ -1321,7 +1469,13 @@ export class WorldScene extends Phaser.Scene {
     const playerPoint = this.getPlayerInteractionPoint();
 
     if (this.boatState.onBoat && this.boatState.currentWaterId) {
-      const disembark = this.boatSystem.tryDisembark(this.boatState.position, this.boatState.currentWaterId, [HOUSE_LAYOUT.bounds]);
+      const lockedRects = getLockedGates(UNLOCK_GATES, this.state.state.unlocks.unlockedWaters)
+        .flatMap((gate) => [gate.lockedArea, gate.barrier]);
+      const disembark = this.boatSystem.tryDisembark(
+        this.boatState.position,
+        this.boatState.currentWaterId,
+        [HOUSE_LAYOUT.bounds, ...lockedRects]
+      );
       if (disembark.disembarked && disembark.playerPoint) {
         this.boatState.onBoat = false;
         this.boatState.currentWaterId = null;
@@ -1396,6 +1550,13 @@ export class WorldScene extends Phaser.Scene {
     const attempt = this.fishingSystem.buildAttempt(castPoint);
     if (!attempt) {
       this.message = "Ogiltig kastpunkt.";
+      return;
+    }
+
+    if (!this.state.isWaterUnlocked(attempt.waterId)) {
+      const unlockRule = getUnlockRuleForWater(attempt.waterId);
+      const levelReq = unlockRule?.requiredLevel ?? 1;
+      this.message = `Det vattnet är låst. Kräver nivå ${levelReq}.`;
       return;
     }
 
