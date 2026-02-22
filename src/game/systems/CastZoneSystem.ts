@@ -2,6 +2,7 @@ import {
   clampPointToWater,
   distance,
   getNearestWaterBoundaryPoint,
+  getWaterById,
   nearestFishablePoint,
   pointInPolygon,
   polygonCentroid,
@@ -10,7 +11,10 @@ import {
 import type { DynamicCastZone, Point, WaterId } from "../types";
 
 export class CastZoneSystem {
-  constructor(private readonly maxDistance = 185) {}
+  constructor(
+    private readonly maxDistance = 185,
+    private readonly boatMaxCastDistance = 210
+  ) {}
 
   compute(playerPoint: Point, aimPoint?: Point | null): DynamicCastZone {
     const nearest = getNearestWaterBoundaryPoint(playerPoint);
@@ -37,6 +41,30 @@ export class CastZoneSystem {
       autoCenter,
       aimCenter: projectedAim,
       isAiming: Boolean(projectedAim),
+      radius: 30,
+      visible: true
+    };
+  }
+
+  computeForBoat(boatPoint: Point, waterId: WaterId, aimPoint?: Point | null): DynamicCastZone {
+    const water = getWaterById(waterId);
+    if (!water) {
+      return this.hidden();
+    }
+
+    const safeBoatPoint = clampPointToWater(boatPoint, waterId) ?? polygonCentroid(water.polygon);
+    const autoCenter = this.computeBoatAutoCenter(safeBoatPoint, waterId);
+    const projectedAim = aimPoint ? this.projectAimToWater(waterId, aimPoint) : null;
+    const boundedAim = projectedAim
+      ? this.limitCastDistance(safeBoatPoint, projectedAim, this.boatMaxCastDistance)
+      : null;
+
+    return {
+      waterId,
+      center: boundedAim ?? autoCenter,
+      autoCenter,
+      aimCenter: boundedAim,
+      isAiming: Boolean(boundedAim),
       radius: 30,
       visible: true
     };
@@ -83,5 +111,44 @@ export class CastZoneSystem {
       radius: 30,
       visible: false
     };
+  }
+
+  private computeBoatAutoCenter(boatPoint: Point, waterId: WaterId): Point {
+    const water = getWaterById(waterId);
+    if (!water) {
+      return boatPoint;
+    }
+
+    const centroid = polygonCentroid(water.polygon);
+    const vx = centroid.x - boatPoint.x;
+    const vy = centroid.y - boatPoint.y;
+    const len = Math.hypot(vx, vy) || 1;
+    const unit = { x: vx / len, y: vy / len };
+
+    for (const offset of [40, 56, 72, 88]) {
+      const candidate = {
+        x: boatPoint.x + unit.x * offset,
+        y: boatPoint.y + unit.y * offset
+      };
+      if (pointInPolygon(candidate, water.polygon)) {
+        return candidate;
+      }
+    }
+
+    return nearestFishablePoint(boatPoint, waterId) ?? clampPointToWater(boatPoint, waterId) ?? centroid;
+  }
+
+  private limitCastDistance(origin: Point, target: Point, maxDistance: number): Point {
+    const d = distance(origin, target);
+    if (d <= maxDistance) {
+      return target;
+    }
+
+    const scale = maxDistance / (d || 1);
+    const limited = {
+      x: origin.x + (target.x - origin.x) * scale,
+      y: origin.y + (target.y - origin.y) * scale
+    };
+    return limited;
   }
 }

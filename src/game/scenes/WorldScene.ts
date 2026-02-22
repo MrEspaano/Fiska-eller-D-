@@ -1161,7 +1161,15 @@ export class WorldScene extends Phaser.Scene {
       this.manualAimPoint = { x: pointer.worldX, y: pointer.worldY };
     }
 
-    this.dynamicCastZone = this.castZoneSystem.compute(sourcePoint, this.manualAimPoint);
+    if (this.boatState.onBoat && this.boatState.currentWaterId) {
+      this.dynamicCastZone = this.castZoneSystem.computeForBoat(
+        sourcePoint,
+        this.boatState.currentWaterId,
+        this.manualAimPoint
+      );
+    } else {
+      this.dynamicCastZone = this.castZoneSystem.compute(sourcePoint, this.manualAimPoint);
+    }
     if (!this.dynamicCastZone.visible) {
       this.isCastZoneArmed = false;
       this.manualAimPoint = null;
