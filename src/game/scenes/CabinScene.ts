@@ -52,6 +52,7 @@ export class CabinScene extends Phaser.Scene {
     if (!root) {
       throw new Error("#app saknas");
     }
+    root.querySelectorAll(".minimap").forEach((node) => node.remove());
 
     this.drawInteriorDetailed();
 

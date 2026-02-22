@@ -1,5 +1,7 @@
 import type { BuffState, SaveState } from "../types";
 
+const PLAYER_NAME = "Albanus";
+
 export class Hud {
   private readonly el: HTMLDivElement;
 
@@ -16,6 +18,7 @@ export class Hud {
       .length;
 
     this.el.innerHTML = `
+      <div>Spelare: ${PLAYER_NAME}</div>
       <div>Poäng: ${state.score}</div>
       <div>Bär: ${state.inventory.carriedCount}/15</div>
       <div>Arter: ${topSpecies}/12</div>

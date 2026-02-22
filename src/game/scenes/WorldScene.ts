@@ -33,6 +33,8 @@ import { getRoundedLineOrigin } from "../systems/FishingLineSystem";
 import { AudioSystem } from "../systems/AudioSystem";
 import { MenuOverlay, type MenuMode } from "../ui/MenuOverlay";
 import { shouldHandleWorldAction, shouldOpenWorldPauseMenu } from "../ui/menuGuards";
+import { Minimap } from "../ui/Minimap";
+import { shouldShowMinimap } from "../ui/minimapRender";
 
 const PLAYER_SPEED = 180;
 const CAMERA_TARGET_TILES_X = 18;
@@ -49,6 +51,14 @@ interface CampfireFlame {
   flickerOffset: number;
 }
 
+interface ChimneySmokePuff {
+  sprite: Phaser.GameObjects.Ellipse;
+  vx: number;
+  vy: number;
+  ageMs: number;
+  ttlMs: number;
+}
+
 export class WorldScene extends Phaser.Scene {
   private player!: PlayerSpriteSystem;
   private inputSystem!: InputSystem;
@@ -56,6 +66,7 @@ export class WorldScene extends Phaser.Scene {
   private catchOverlay!: CatchScene;
   private freezerPanel!: FreezerPanel;
   private menu!: MenuOverlay;
+  private minimap!: Minimap;
   private audio!: AudioSystem;
   private menuOpen = false;
   private menuMode: MenuMode = "boot";
@@ -78,6 +89,9 @@ export class WorldScene extends Phaser.Scene {
   private boatFrontGraphics!: Phaser.GameObjects.Graphics;
   private houseDoorGlow!: Phaser.GameObjects.Rectangle;
   private campfireFlames: CampfireFlame[] = [];
+  private chimneySmoke: ChimneySmokePuff[] = [];
+  private chimneySmokeOrigin: Point | null = null;
+  private chimneySmokeSpawnAccumulatorMs = 0;
 
   private baseGroundLayer!: Phaser.GameObjects.Layer;
   private shorelineLayer!: Phaser.GameObjects.Layer;
@@ -144,6 +158,15 @@ export class WorldScene extends Phaser.Scene {
 
     this.inputSystem = new InputSystem(this, root);
     this.hud = new Hud(root);
+    this.minimap = new Minimap(root, {
+      worldWidth: WORLD_W,
+      worldHeight: WORLD_H,
+      tileSize: TILE_SIZE,
+      waters: WATER_BODIES.map((water) => water.polygon),
+      pathTiles: this.pathTiles,
+      docks: DOCKS.map((dock) => dock.rect),
+      house: HOUSE_LAYOUT.bounds
+    });
     this.catchOverlay = new CatchScene(root);
     this.freezerPanel = new FreezerPanel(root, {
       onDepositAll: () => {
@@ -232,9 +255,11 @@ export class WorldScene extends Phaser.Scene {
 
     this.events.once("shutdown", () => {
       this.menu.destroy();
+      this.minimap.destroy();
     });
     this.events.once("destroy", () => {
       this.menu.destroy();
+      this.minimap.destroy();
     });
   }
 
@@ -254,9 +279,15 @@ export class WorldScene extends Phaser.Scene {
     }
 
     if (this.menuOpen) {
+      if (shouldShowMinimap("world", this.menuOpen)) {
+        this.minimap.show();
+      } else {
+        this.minimap.hide();
+      }
       this.player.setMode(this.boatState.onBoat ? "boat_sit" : "idle");
       this.player.update(delta);
       this.updateCampfires(now);
+      this.updateChimneySmoke(delta);
       this.drawShadows();
       this.drawBoats();
       this.drawCastZone(now);
@@ -296,6 +327,7 @@ export class WorldScene extends Phaser.Scene {
     this.tickFishingSession(now);
     this.updatePlayerAnimation(isMoving, delta);
     this.updateCampfires(now);
+    this.updateChimneySmoke(delta);
 
     this.drawShadows();
     this.drawBoats();
@@ -303,6 +335,15 @@ export class WorldScene extends Phaser.Scene {
     this.drawFishingVfx(now);
     this.updateDoorGlow(now);
     this.cameras.main.setScroll(Math.round(this.cameras.main.scrollX), Math.round(this.cameras.main.scrollY));
+    if (shouldShowMinimap("world", this.menuOpen)) {
+      this.minimap.show();
+      this.minimap.update({
+        player: { x: this.player.x, y: this.player.y },
+        facing: this.facing
+      });
+    } else {
+      this.minimap.hide();
+    }
 
     if (
       shouldHandleWorldAction(
@@ -813,6 +854,12 @@ export class WorldScene extends Phaser.Scene {
 
     this.add.rectangle(bounds.x + bounds.width - 28, bounds.y + 14, 22, 40, 0x3d302f).setDepth(3);
     this.add.rectangle(bounds.x + bounds.width - 28, bounds.y - 8, 14, 16, 0x6a5857).setDepth(4);
+    this.add.rectangle(bounds.x + bounds.width - 28, bounds.y - 14, 10, 6, 0x4e4341).setDepth(4);
+    this.add.rectangle(bounds.x + bounds.width - 28, bounds.y - 17, 8, 3, 0x7a6a65, 0.85).setDepth(5);
+    this.chimneySmokeOrigin = {
+      x: bounds.x + bounds.width - 28,
+      y: bounds.y - 20
+    };
 
     const trigger = HOUSE_LAYOUT.doorTrigger;
     this.houseDoorGlow = this.add.rectangle(
@@ -882,6 +929,61 @@ export class WorldScene extends Phaser.Scene {
       flame.spark.setPosition(flame.center.x + drift, flame.center.y - 6 - (pulse * 8));
       flame.spark.setAlpha(0.08 + pulse * 0.32);
     }
+  }
+
+  private updateChimneySmoke(deltaMs: number): void {
+    if (!this.chimneySmokeOrigin) {
+      return;
+    }
+
+    this.chimneySmokeSpawnAccumulatorMs += deltaMs;
+    while (this.chimneySmokeSpawnAccumulatorMs >= 620) {
+      this.chimneySmokeSpawnAccumulatorMs -= 620;
+      this.spawnChimneySmokePuff();
+    }
+
+    const active: ChimneySmokePuff[] = [];
+    for (const puff of this.chimneySmoke) {
+      puff.ageMs += deltaMs;
+      const t = Math.min(1, puff.ageMs / puff.ttlMs);
+
+      puff.sprite.x += puff.vx * (deltaMs / 1000);
+      puff.sprite.y += puff.vy * (deltaMs / 1000);
+      puff.sprite.x += Math.sin(puff.ageMs * 0.004) * 0.08 * (deltaMs / 16.6);
+      puff.sprite.setScale(1 + t * 0.9);
+      puff.sprite.setAlpha(0.5 * (1 - t));
+
+      if (t >= 1) {
+        puff.sprite.destroy();
+      } else {
+        active.push(puff);
+      }
+    }
+    this.chimneySmoke = active;
+  }
+
+  private spawnChimneySmokePuff(): void {
+    if (!this.chimneySmokeOrigin) {
+      return;
+    }
+
+    const ttlMs = 1800 + Math.random() * 1100;
+    const puff = this.add.ellipse(
+      this.chimneySmokeOrigin.x + Phaser.Math.Between(-2, 2),
+      this.chimneySmokeOrigin.y + Phaser.Math.Between(-1, 1),
+      Phaser.Math.Between(6, 9),
+      Phaser.Math.Between(5, 8),
+      0xc8d0d4,
+      0.5
+    ).setDepth(6);
+
+    this.chimneySmoke.push({
+      sprite: puff,
+      vx: Phaser.Math.FloatBetween(-7, 7),
+      vy: Phaser.Math.FloatBetween(-21, -13),
+      ageMs: 0,
+      ttlMs
+    });
   }
 
   private drawNpcs(): void {
@@ -1364,11 +1466,13 @@ export class WorldScene extends Phaser.Scene {
     this.menuOpen = true;
     this.isCastZoneArmed = false;
     this.message = message;
+    this.minimap.hide();
     this.menu.show(mode);
   }
 
   private closeMenu(): void {
     this.menuOpen = false;
+    this.minimap.show();
     this.menu.hide();
   }
 
