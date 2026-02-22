@@ -220,31 +220,82 @@ button:hover {
   pointer-events: none;
 }
 
-.joystick,
-.action-button {
+.mobile-dpad,
+.mobile-actions {
   position: absolute;
-  pointer-events: auto;
-  border: 2px solid rgba(17, 17, 17, 0.8);
-  background: rgba(43, 47, 51, 0.5);
-  color: var(--ui-text);
+  pointer-events: none;
 }
 
-.joystick {
-  width: 130px;
-  height: 130px;
-  border-radius: 50%;
+.mobile-dpad {
   left: 24px;
   bottom: 24px;
 }
 
-.action-button {
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
+.dpad-grid {
+  width: 210px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.dpad-btn,
+.mobile-actions .action-button,
+.mobile-actions .menu-button {
+  position: absolute;
+  pointer-events: auto;
+  border: 2px solid rgba(17, 17, 17, 0.8);
+  background: rgba(43, 47, 51, 0.64);
+  color: var(--ui-text);
+  touch-action: none;
+  user-select: none;
+}
+
+.dpad-btn {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  font-size: 22px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.dpad-btn:active,
+.mobile-actions .action-button:active,
+.mobile-actions .menu-button:active {
+  background: rgba(101, 126, 143, 0.82);
+  transform: translateY(1px);
+}
+
+.mobile-actions {
   right: 24px;
   bottom: 24px;
   display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.mobile-actions .menu-button {
+  position: relative;
+  width: 90px;
+  height: 48px;
+  border-radius: 10px;
+  font-size: 12px;
+  padding: 0;
+  color: var(--ui-text);
+}
+
+.mobile-actions .action-button {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: grid;
   place-items: center;
+  font-size: 18px;
+  padding: 0;
 }
 
 @media (min-width: 1024px) {

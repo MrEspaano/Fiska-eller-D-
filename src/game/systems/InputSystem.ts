@@ -1,5 +1,10 @@
 import Phaser from "phaser";
 import type { Point } from "../types";
+import {
+  computeMoveVectorFromInputs,
+  shouldConsumeMenuToggle,
+  type MobileDirections
+} from "./mobileInput";
 
 export class InputSystem {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -7,8 +12,9 @@ export class InputSystem {
   private actionSpace: Phaser.Input.Keyboard.Key;
   private actionE: Phaser.Input.Keyboard.Key;
   private menuEscape: Phaser.Input.Keyboard.Key;
-  private readonly joystick = { active: false, center: { x: 0, y: 0 }, vector: { x: 0, y: 0 } };
+  private readonly mobileDirections: MobileDirections = { up: false, down: false, left: false, right: false };
   private actionPressed = false;
+  private menuPressed = false;
 
   constructor(scene: Phaser.Scene, private readonly root: HTMLElement) {
     this.cursors = scene.input.keyboard?.createCursorKeys() ?? ({} as Phaser.Types.Input.Keyboard.CursorKeys);
@@ -20,15 +26,11 @@ export class InputSystem {
   }
 
   getMoveVector(): Point {
-    const x = (this.keyDown(this.cursors.right) || this.keyDown(this.wasd.D) ? 1 : 0)
+    const keyboardX = (this.keyDown(this.cursors.right) || this.keyDown(this.wasd.D) ? 1 : 0)
       - (this.keyDown(this.cursors.left) || this.keyDown(this.wasd.A) ? 1 : 0);
-    const y = (this.keyDown(this.cursors.down) || this.keyDown(this.wasd.S) ? 1 : 0)
+    const keyboardY = (this.keyDown(this.cursors.down) || this.keyDown(this.wasd.S) ? 1 : 0)
       - (this.keyDown(this.cursors.up) || this.keyDown(this.wasd.W) ? 1 : 0);
-
-    const combinedX = x + this.joystick.vector.x;
-    const combinedY = y + this.joystick.vector.y;
-    const len = Math.hypot(combinedX, combinedY) || 1;
-    return { x: combinedX / len, y: combinedY / len };
+    return computeMoveVectorFromInputs(keyboardX, keyboardY, this.mobileDirections);
   }
 
   consumeAction(): boolean {
@@ -42,7 +44,12 @@ export class InputSystem {
   }
 
   consumeMenuToggle(): boolean {
-    return Phaser.Input.Keyboard.JustDown(this.menuEscape);
+    const keyboardToggle = Phaser.Input.Keyboard.JustDown(this.menuEscape);
+    const toggle = shouldConsumeMenuToggle(keyboardToggle, this.menuPressed);
+    if (toggle) {
+      this.menuPressed = false;
+    }
+    return toggle;
   }
 
   private keyDown(key?: Phaser.Input.Keyboard.Key): boolean {
@@ -54,33 +61,51 @@ export class InputSystem {
     const controls = document.createElement("div");
     controls.className = "mobile-controls";
     controls.innerHTML = `
-      <div class="joystick"></div>
-      <button class="action-button" type="button">A</button>
+      <div class="mobile-dpad">
+        <div class="dpad-grid">
+          <button class="dpad-btn up" type="button" aria-label="Upp">▲</button>
+          <button class="dpad-btn right" type="button" aria-label="Höger">▶</button>
+          <button class="dpad-btn left" type="button" aria-label="Vänster">◀</button>
+          <button class="dpad-btn down" type="button" aria-label="Ner">▼</button>
+        </div>
+      </div>
+      <div class="mobile-actions">
+        <button class="menu-button" type="button" aria-label="Meny">Meny</button>
+        <button class="action-button" type="button" aria-label="Interagera">A</button>
+      </div>
     `;
     this.root.appendChild(controls);
 
-    const joystickEl = controls.querySelector(".joystick") as HTMLDivElement;
+    const upBtn = controls.querySelector(".dpad-btn.up") as HTMLButtonElement;
+    const rightBtn = controls.querySelector(".dpad-btn.right") as HTMLButtonElement;
+    const leftBtn = controls.querySelector(".dpad-btn.left") as HTMLButtonElement;
+    const downBtn = controls.querySelector(".dpad-btn.down") as HTMLButtonElement;
+    const menuBtn = controls.querySelector(".menu-button") as HTMLButtonElement;
     const actionBtn = controls.querySelector(".action-button") as HTMLButtonElement;
 
-    joystickEl.addEventListener("pointerdown", (ev) => {
-      this.joystick.active = true;
-      const rect = joystickEl.getBoundingClientRect();
-      this.joystick.center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-      this.updateJoystick(ev.clientX, ev.clientY, rect.width / 2);
-      joystickEl.setPointerCapture(ev.pointerId);
+    this.attachHoldButton(upBtn, () => {
+      this.mobileDirections.up = true;
+    }, () => {
+      this.mobileDirections.up = false;
+    });
+    this.attachHoldButton(rightBtn, () => {
+      this.mobileDirections.right = true;
+    }, () => {
+      this.mobileDirections.right = false;
+    });
+    this.attachHoldButton(leftBtn, () => {
+      this.mobileDirections.left = true;
+    }, () => {
+      this.mobileDirections.left = false;
+    });
+    this.attachHoldButton(downBtn, () => {
+      this.mobileDirections.down = true;
+    }, () => {
+      this.mobileDirections.down = false;
     });
 
-    joystickEl.addEventListener("pointermove", (ev) => {
-      if (!this.joystick.active) {
-        return;
-      }
-      const rect = joystickEl.getBoundingClientRect();
-      this.updateJoystick(ev.clientX, ev.clientY, rect.width / 2);
-    });
-
-    joystickEl.addEventListener("pointerup", () => {
-      this.joystick.active = false;
-      this.joystick.vector = { x: 0, y: 0 };
+    menuBtn.addEventListener("pointerdown", () => {
+      this.menuPressed = true;
     });
 
     actionBtn.addEventListener("pointerdown", () => {
@@ -88,14 +113,20 @@ export class InputSystem {
     });
   }
 
-  private updateJoystick(x: number, y: number, radius: number): void {
-    const dx = x - this.joystick.center.x;
-    const dy = y - this.joystick.center.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const clamped = Math.min(radius, len);
-    this.joystick.vector = {
-      x: (dx / len) * (clamped / radius),
-      y: (dy / len) * (clamped / radius)
-    };
+  private attachHoldButton(
+    button: HTMLButtonElement,
+    onPress: () => void,
+    onRelease: () => void
+  ): void {
+    button.addEventListener("pointerdown", (ev) => {
+      onPress();
+      button.setPointerCapture(ev.pointerId);
+    });
+
+    const release = () => onRelease();
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("pointerleave", release);
+    button.addEventListener("lostpointercapture", release);
   }
 }

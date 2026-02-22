@@ -34,6 +34,13 @@ export const MAIN_MENU_ITEMS: MainMenuItem[] = [
   { id: "exit", label: "Avsluta till meny" }
 ];
 
+export const HELP_LINES = [
+  "WASD/Piltangenter: rörelse",
+  "SPACE/E: interagera/fiska",
+  "ESC: meny",
+  "Mobil: pilknappar + A-knapp + Meny"
+];
+
 export function getNextMenuIndex(current: number, direction: "up" | "down", length: number): number {
   if (length <= 0) {
     return 0;
@@ -263,10 +270,7 @@ export class MenuOverlay {
     this.subPanelEl.innerHTML = `
       <div class="menu-subpanel menu-help">
         <h3>Hjälp</h3>
-        <p>WASD/Piltangenter: rörelse</p>
-        <p>SPACE/E: interagera/fiska</p>
-        <p>ESC: meny</p>
-        <p>Mobil: joystick + A-knapp</p>
+        ${HELP_LINES.map((line) => `<p>${line}</p>`).join("")}
         <button class="menu-button" data-help-back type="button">Tillbaka</button>
       </div>
     `;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  HELP_LINES,
   MAIN_MENU_ITEMS,
   MENU_TITLE,
   getNextMenuIndex,
@@ -28,5 +29,9 @@ describe("Menu overlay configuration", () => {
     expect(resolveEscapeAction("pause", "main")).toBe("close_menu");
     expect(resolveEscapeAction("pause", "settings")).toBe("back_to_main");
     expect(resolveEscapeAction("boot", "help")).toBe("back_to_main");
+  });
+
+  it("contains updated mobile controls help line", () => {
+    expect(HELP_LINES).toContain("Mobil: pilknappar + A-knapp + Meny");
   });
 });
