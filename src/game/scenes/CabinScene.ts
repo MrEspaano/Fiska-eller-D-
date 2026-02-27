@@ -22,6 +22,12 @@ import { shouldOpenCabinPauseMenu } from "../ui/menuGuards";
 const CAMERA_TARGET_TILES_X = 18;
 const CAMERA_TARGET_TILES_Y = 10;
 
+interface CabinLamp {
+  glow: Phaser.GameObjects.Ellipse;
+  core: Phaser.GameObjects.Arc;
+  phase: number;
+}
+
 export class CabinScene extends Phaser.Scene {
   private player!: PlayerSpriteSystem;
   private state!: GameState;
@@ -38,6 +44,7 @@ export class CabinScene extends Phaser.Scene {
   private stoveHint!: Phaser.GameObjects.Rectangle;
   private exitHint!: Phaser.GameObjects.Rectangle;
   private exitLabel!: Phaser.GameObjects.Text;
+  private cabinLamps: CabinLamp[] = [];
 
   constructor() {
     super("CabinScene");
@@ -179,6 +186,7 @@ export class CabinScene extends Phaser.Scene {
     this.cameras.main.setScroll(Math.round(this.cameras.main.scrollX), Math.round(this.cameras.main.scrollY));
 
     this.updateZoneHints(delta);
+    this.updateCabinLamps(now);
 
     if (!this.panel.isOpen() && this.inputSystem.consumeAction()) {
       const p = { x: this.player.x, y: this.player.y };
@@ -243,6 +251,7 @@ export class CabinScene extends Phaser.Scene {
     this.drawBedAndStorage();
     this.drawDecor();
     this.drawExitDoorArea();
+    this.drawCabinAtmosphere();
 
     const freezer = CABIN_INTERACTION_ZONES.freezer;
     const stove = CABIN_INTERACTION_ZONES.stove;
@@ -257,6 +266,31 @@ export class CabinScene extends Phaser.Scene {
       fontSize: "11px",
       color: "#e6e1d3"
     }).setDepth(19);
+  }
+
+  private drawCabinAtmosphere(): void {
+    this.add.rectangle(CABIN_W / 2, CABIN_H / 2, CABIN_W, CABIN_H, 0x2f2018, 0.08).setDepth(6);
+    this.cabinLamps = [];
+    const lampPositions = [
+      { x: 7 * TILE_SIZE, y: 2 * TILE_SIZE + 8 },
+      { x: 23 * TILE_SIZE, y: 2 * TILE_SIZE + 8 }
+    ];
+
+    for (const lamp of lampPositions) {
+      this.add.circle(lamp.x, lamp.y - 6, 4, 0x8d6b42).setDepth(8);
+      const glow = this.add.ellipse(lamp.x, lamp.y, 72, 44, 0xf3c26d, 0.18).setDepth(7);
+      const core = this.add.circle(lamp.x, lamp.y - 2, 3, 0xffdf8d, 0.92).setDepth(9);
+      this.cabinLamps.push({ glow, core, phase: Math.random() * Math.PI * 2 });
+    }
+  }
+
+  private updateCabinLamps(now: number): void {
+    for (const lamp of this.cabinLamps) {
+      const pulse = (Math.sin(now * 0.006 + lamp.phase) + 1) * 0.5;
+      lamp.glow.setScale(1 + pulse * 0.12, 1 + pulse * 0.08);
+      lamp.glow.setAlpha(0.15 + pulse * 0.1);
+      lamp.core.setAlpha(0.72 + pulse * 0.2);
+    }
   }
 
   private drawFreezerArea(): void {

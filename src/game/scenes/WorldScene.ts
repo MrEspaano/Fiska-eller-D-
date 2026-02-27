@@ -63,6 +63,15 @@ interface ChimneySmokePuff {
   ttlMs: number;
 }
 
+interface AmbientMote {
+  sprite: Phaser.GameObjects.Ellipse;
+  baseX: number;
+  baseY: number;
+  driftX: number;
+  driftY: number;
+  phase: number;
+}
+
 export class WorldScene extends Phaser.Scene {
   private player!: PlayerSpriteSystem;
   private inputSystem!: InputSystem;
@@ -92,14 +101,18 @@ export class WorldScene extends Phaser.Scene {
   private fishingVfxGraphics!: Phaser.GameObjects.Graphics;
   private boatGraphics!: Phaser.GameObjects.Graphics;
   private boatFrontGraphics!: Phaser.GameObjects.Graphics;
+  private waterFxGraphics!: Phaser.GameObjects.Graphics;
+  private atmosphereGraphics!: Phaser.GameObjects.Graphics;
   private gateGraphics!: Phaser.GameObjects.Graphics;
   private unlockMarkerGraphics!: Phaser.GameObjects.Graphics;
   private houseDoorGlow!: Phaser.GameObjects.Rectangle;
   private gateSigns = new Map<WaterId, Phaser.GameObjects.Text>();
   private campfireFlames: CampfireFlame[] = [];
   private chimneySmoke: ChimneySmokePuff[] = [];
+  private ambientMotes: AmbientMote[] = [];
   private chimneySmokeOrigin: Point | null = null;
   private chimneySmokeSpawnAccumulatorMs = 0;
+  private waterFxAnchors: Point[] = [];
 
   private baseGroundLayer!: Phaser.GameObjects.Layer;
   private shorelineLayer!: Phaser.GameObjects.Layer;
@@ -111,11 +124,11 @@ export class WorldScene extends Phaser.Scene {
   private pathTiles = new Set<string>();
 
   private readonly terrainTextureKeys = {
-    grass: Array.from({ length: 8 }, (_, idx) => `tile-grass-${idx}`),
-    road: Array.from({ length: 6 }, (_, idx) => `tile-road-${idx}`),
-    shore: Array.from({ length: 4 }, (_, idx) => `tile-shore-${idx}`),
-    water: Array.from({ length: 4 }, (_, idx) => `tile-water-${idx}`),
-    dock: Array.from({ length: 4 }, (_, idx) => `tile-dock-${idx}`)
+    grass: Array.from({ length: 12 }, (_, idx) => `tile-grass-${idx}`),
+    road: Array.from({ length: 8 }, (_, idx) => `tile-road-${idx}`),
+    shore: Array.from({ length: 6 }, (_, idx) => `tile-shore-${idx}`),
+    water: Array.from({ length: 6 }, (_, idx) => `tile-water-${idx}`),
+    dock: Array.from({ length: 5 }, (_, idx) => `tile-dock-${idx}`)
   };
 
   private dynamicCastZone: DynamicCastZone = {
@@ -241,16 +254,21 @@ export class WorldScene extends Phaser.Scene {
     this.fishingVfxGraphics = this.add.graphics();
     this.boatGraphics = this.add.graphics();
     this.boatFrontGraphics = this.add.graphics();
+    this.waterFxGraphics = this.add.graphics();
+    this.atmosphereGraphics = this.add.graphics();
     this.gateGraphics = this.add.graphics();
     this.unlockMarkerGraphics = this.add.graphics();
+    this.waterFxGraphics.setDepth(5);
     this.castZoneGraphics.setDepth(22);
     this.shadowGraphics.setDepth(6);
     this.fishingVfxGraphics.setDepth(23);
     this.boatGraphics.setDepth(9);
     this.boatFrontGraphics.setDepth(13);
+    this.atmosphereGraphics.setDepth(15);
     this.gateGraphics.setDepth(17);
     this.unlockMarkerGraphics.setDepth(26);
     this.createGateSigns();
+    this.createAmbientMotes();
 
     this.shadows.initialize(this.time.now);
 
@@ -305,10 +323,13 @@ export class WorldScene extends Phaser.Scene {
       this.player.update(delta);
       this.updateCampfires(now);
       this.updateChimneySmoke(delta);
+      this.updateAmbientMotes(delta, now);
       this.drawShadows();
       this.drawBoats();
+      this.drawWaterFx(now);
       this.drawLockedGates();
       this.drawUnlockMarkers(now);
+      this.drawAtmosphere(now);
       this.drawCastZone(now);
       this.drawFishingVfx(now);
       this.progressPopup.hide();
@@ -348,11 +369,14 @@ export class WorldScene extends Phaser.Scene {
     this.updatePlayerAnimation(isMoving, delta);
     this.updateCampfires(now);
     this.updateChimneySmoke(delta);
+    this.updateAmbientMotes(delta, now);
 
     this.drawShadows();
     this.drawBoats();
+    this.drawWaterFx(now);
     this.drawLockedGates();
     this.drawUnlockMarkers(now);
+    this.drawAtmosphere(now);
     this.drawCastZone(now);
     this.drawFishingVfx(now);
     this.progressPopup.update(now);
@@ -389,6 +413,7 @@ export class WorldScene extends Phaser.Scene {
     this.drawWaterLayer();
     this.drawPathLayer();
     this.drawDocks();
+    this.drawWaterlineDecor();
     this.drawNatureProps();
     this.drawHouse();
     this.drawCampfires();
@@ -432,32 +457,39 @@ export class WorldScene extends Phaser.Scene {
   private createGrassTexture(key: string, variant: number): void {
     this.createTileTexture(key, (g) => {
       const rand = this.seededNoise(1100 + variant * 31);
-      const basePalette = [0x587a49, 0x5f834f, 0x547446, 0x638856, 0x4f6f42, 0x688d58];
-      const shadePalette = [0x6f965f, 0x46653b, 0x7aa265];
-      const pebblePalette = [0x7e8f70, 0x8d9a76];
+      const basePalette = [0x557846, 0x5f8450, 0x4f7041, 0x6a8f59, 0x4b6940, 0x6f9660, 0x5b7f4c, 0x648a54];
+      const shadePalette = [0x749c63, 0x3f5f36, 0x7ea768, 0x6b8f5c, 0x385530];
+      const pebblePalette = [0x7e8f70, 0x8d9a76, 0x6f7f66];
 
       g.fillStyle(basePalette[variant % basePalette.length], 1);
       g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-      for (let i = 0; i < 30; i += 1) {
+      for (let i = 0; i < 54; i += 1) {
         const color = shadePalette[i % shadePalette.length];
         const w = rand() > 0.72 ? 2 : 1;
         const h = rand() > 0.8 ? 2 : 1;
-        g.fillStyle(color, 0.45 + rand() * 0.3);
+        g.fillStyle(color, 0.34 + rand() * 0.34);
         g.fillRect(Math.floor(rand() * 31), Math.floor(rand() * 31), w, h);
       }
 
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         const x = 3 + Math.floor(rand() * 24);
         const y = 4 + Math.floor(rand() * 24);
-        g.fillStyle(0x7ea867, 0.7);
+        g.fillStyle(i % 2 === 0 ? 0x7ea867 : 0x6f955e, 0.76);
         g.fillRect(x, y, 1, 4);
         g.fillRect(x + 1, y + 1, 1, 2);
       }
 
-      for (let i = 0; i < 3; i += 1) {
+      for (let i = 0; i < 5; i += 1) {
         g.fillStyle(pebblePalette[i % pebblePalette.length], 0.55);
         g.fillRect(2 + Math.floor(rand() * 27), 2 + Math.floor(rand() * 27), 1 + (i % 2), 1);
+      }
+
+      for (let i = 0; i < 6; i += 1) {
+        const x = 2 + Math.floor(rand() * 27);
+        const y = 2 + Math.floor(rand() * 27);
+        g.fillStyle(0x9dc57d, 0.24 + rand() * 0.15);
+        g.fillRect(x, y, 1, 1);
       }
     });
   }
@@ -465,20 +497,25 @@ export class WorldScene extends Phaser.Scene {
   private createRoadTexture(key: string, variant: number): void {
     this.createTileTexture(key, (g) => {
       const rand = this.seededNoise(2100 + variant * 43);
-      const basePalette = [0xc4b07b, 0xbeaa74, 0xbca772, 0xcbb884];
+      const basePalette = [0xc4b07b, 0xbeaa74, 0xbca772, 0xcbb884, 0xbda46d, 0xcfbc89];
       g.fillStyle(basePalette[variant % basePalette.length], 1);
       g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-      for (let i = 0; i < 22; i += 1) {
+      for (let i = 0; i < 34; i += 1) {
         const color = i % 2 === 0 ? 0xaa915f : 0xd5c28d;
-        g.fillStyle(color, 0.4 + rand() * 0.35);
+        g.fillStyle(color, 0.3 + rand() * 0.35);
         const w = rand() > 0.6 ? 2 : 1;
         g.fillRect(Math.floor(rand() * 31), Math.floor(rand() * 31), w, 1);
       }
 
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         g.fillStyle(0x8f7850, 0.62);
         g.fillRect(2 + Math.floor(rand() * 28), 3 + Math.floor(rand() * 26), 1, 1);
+      }
+
+      for (let i = 0; i < 4; i += 1) {
+        g.fillStyle(0xdfd0a0, 0.22 + rand() * 0.2);
+        g.fillRect(1 + Math.floor(rand() * 30), 1 + Math.floor(rand() * 30), 2, 1);
       }
     });
   }
@@ -486,18 +523,23 @@ export class WorldScene extends Phaser.Scene {
   private createShoreTexture(key: string, variant: number): void {
     this.createTileTexture(key, (g) => {
       const rand = this.seededNoise(3100 + variant * 29);
-      const sand = [0xc8b67e, 0xd2c28e, 0xbeab74, 0xd8c994][variant % 4];
+      const sand = [0xc8b67e, 0xd2c28e, 0xbeab74, 0xd8c994, 0xcfbd84, 0xbfa96e][variant % 6];
       g.fillStyle(sand, 1);
       g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-      for (let y = 20; y < TILE_SIZE; y += 2) {
-        g.fillStyle(0x9f8b61, 0.2 + ((y - 20) / 14) * 0.25);
+      for (let y = 18; y < TILE_SIZE; y += 2) {
+        g.fillStyle(0x9f8b61, 0.2 + ((y - 18) / 16) * 0.28);
         g.fillRect(0, y, TILE_SIZE, 1);
       }
 
-      for (let i = 0; i < 16; i += 1) {
+      for (let i = 0; i < 24; i += 1) {
         g.fillStyle(i % 2 === 0 ? 0xa28d62 : 0xe1d4ab, 0.3 + rand() * 0.28);
         g.fillRect(Math.floor(rand() * 31), Math.floor(rand() * 31), 1, 1);
+      }
+
+      for (let i = 0; i < 4; i += 1) {
+        g.fillStyle(0xb39b68, 0.45);
+        g.fillRect(2 + Math.floor(rand() * 27), 20 + Math.floor(rand() * 10), 2, 1);
       }
     });
   }
@@ -505,20 +547,25 @@ export class WorldScene extends Phaser.Scene {
   private createWaterTexture(key: string, variant: number): void {
     this.createTileTexture(key, (g) => {
       const rand = this.seededNoise(4100 + variant * 17);
-      const water = [0x5b8f98, 0x548892, 0x5f939c, 0x567f89][variant % 4];
+      const water = [0x5b8f98, 0x548892, 0x5f939c, 0x567f89, 0x629aa3, 0x4f7e88][variant % 6];
       g.fillStyle(water, 1);
       g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
-      for (let i = 0; i < 20; i += 1) {
+      for (let i = 0; i < 34; i += 1) {
         const color = i % 2 === 0 ? 0x71a8b3 : 0x3d6670;
-        g.fillStyle(color, 0.24 + rand() * 0.3);
+        g.fillStyle(color, 0.18 + rand() * 0.32);
         const w = rand() > 0.6 ? 3 : 2;
         g.fillRect(Math.floor(rand() * 28), Math.floor(rand() * 28), w, 1);
       }
 
-      for (let i = 0; i < 5; i += 1) {
+      for (let i = 0; i < 10; i += 1) {
         g.fillStyle(0x80b6c2, 0.3);
         g.fillRect(2 + Math.floor(rand() * 27), 2 + Math.floor(rand() * 27), 1, 1);
+      }
+
+      for (let i = 0; i < 6; i += 1) {
+        g.fillStyle(0x9ec9d1, 0.2 + rand() * 0.2);
+        g.fillRect(2 + Math.floor(rand() * 26), 2 + Math.floor(rand() * 26), 2, 1);
       }
     });
   }
@@ -526,7 +573,7 @@ export class WorldScene extends Phaser.Scene {
   private createDockTexture(key: string, variant: number): void {
     this.createTileTexture(key, (g) => {
       const rand = this.seededNoise(5100 + variant * 13);
-      const wood = [0xb79c68, 0xae9564, 0xbea877, 0xa58859][variant % 4];
+      const wood = [0xb79c68, 0xae9564, 0xbea877, 0xa58859, 0xc1aa79][variant % 5];
       g.fillStyle(wood, 1);
       g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
 
@@ -535,9 +582,14 @@ export class WorldScene extends Phaser.Scene {
         g.fillRect(0, y, TILE_SIZE, 1);
       }
 
-      for (let i = 0; i < 8; i += 1) {
+      for (let i = 0; i < 14; i += 1) {
         g.fillStyle(0x786242, 0.75);
         g.fillRect(2 + Math.floor(rand() * 27), 2 + Math.floor(rand() * 27), 1, 1);
+      }
+
+      for (let i = 0; i < 6; i += 1) {
+        g.fillStyle(0xceb684, 0.25 + rand() * 0.25);
+        g.fillRect(1 + Math.floor(rand() * 28), 1 + Math.floor(rand() * 28), 2, 1);
       }
     });
   }
@@ -606,11 +658,25 @@ export class WorldScene extends Phaser.Scene {
       const [tx, ty] = key.split(",").map((v) => Number(v));
       const idx = (tx * 7 + ty * 13 + tx * ty) % this.terrainTextureKeys.road.length;
       this.placeTile(this.shorelineLayer, this.terrainTextureKeys.road[idx], tx, ty);
+
+      if ((tx + ty) % 3 === 0) {
+        this.addToLayer(
+          this.decorLayer,
+          this.add.rectangle(tx * TILE_SIZE + 5 + ((tx * ty) % 15), ty * TILE_SIZE + 6 + ((tx + ty) % 8), 1, 1, 0x7a6744, 0.55)
+        );
+      }
+      if ((tx * 5 + ty * 11) % 9 === 0) {
+        this.addToLayer(
+          this.decorLayer,
+          this.add.rectangle(tx * TILE_SIZE + 17 + ((tx + 3) % 11), ty * TILE_SIZE + 20 + ((ty + 2) % 7), 2, 1, 0x9a8760, 0.45)
+        );
+      }
     }
   }
 
   private drawWaterLayer(): void {
     this.waterPolygons = [];
+    this.waterFxAnchors = [];
     for (const water of WATER_BODIES) {
       this.waterPolygons.push(new Phaser.Geom.Polygon(water.polygon.map((p) => new Phaser.Geom.Point(p.x, p.y))));
     }
@@ -627,6 +693,9 @@ export class WorldScene extends Phaser.Scene {
         this.waterTileMask.add(`${x},${y}`);
         const idx = (x * 11 + y * 17 + x * y) % this.terrainTextureKeys.water.length;
         this.placeTile(this.shorelineLayer, this.terrainTextureKeys.water[idx], x, y);
+        if ((x * 3 + y * 5) % 7 === 0) {
+          this.waterFxAnchors.push(center);
+        }
 
         const deepZone = water.zoneDefs.find((z) => z.id === "deep_center" || z.id === "river_run");
         if (deepZone && pointInPolygon(center, deepZone.polygon)) {
@@ -656,6 +725,31 @@ export class WorldScene extends Phaser.Scene {
         if (this.hasAdjacentWater(x, y)) {
           const idx = (x * 5 + y * 7 + x * y) % this.terrainTextureKeys.shore.length;
           this.placeTile(this.shorelineLayer, this.terrainTextureKeys.shore[idx], x, y, 0.75);
+        }
+      }
+    }
+  }
+
+  private drawWaterlineDecor(): void {
+    for (let y = 1; y < WORLD_H_TILES - 1; y += 1) {
+      for (let x = 1; x < WORLD_W_TILES - 1; x += 1) {
+        if (this.isWaterTile(x, y)) {
+          continue;
+        }
+        if (!this.hasAdjacentWater(x, y)) {
+          continue;
+        }
+
+        const center = { x: x * TILE_SIZE + TILE_SIZE / 2, y: y * TILE_SIZE + TILE_SIZE / 2 };
+        if ((x + y) % 2 === 0) {
+          this.addToLayer(this.decorLayer, this.add.rectangle(center.x - 4, center.y + 4, 2, 10, 0x486c43, 0.85));
+          this.addToLayer(this.decorLayer, this.add.rectangle(center.x, center.y + 3, 2, 11, 0x4d7348, 0.82));
+          this.addToLayer(this.decorLayer, this.add.rectangle(center.x + 4, center.y + 5, 2, 9, 0x3f603a, 0.84));
+        }
+
+        if ((x * 7 + y * 9) % 5 === 0) {
+          this.addToLayer(this.decorLayer, this.add.ellipse(center.x, center.y + 13, 8, 3, 0x28322b, 0.24));
+          this.addToLayer(this.decorLayer, this.add.circle(center.x, center.y + 10, 3, 0x7a6b58, 0.8));
         }
       }
     }
@@ -725,7 +819,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawNatureProps(): void {
-    for (let i = 0; i < 410; i += 1) {
+    for (let i = 0; i < 620; i += 1) {
       const tx = 1 + ((i * 11 + 7) % (WORLD_W_TILES - 2));
       const ty = 1 + ((i * 17 + 5) % (WORLD_H_TILES - 2));
       const key = `${tx},${ty}`;
@@ -743,7 +837,7 @@ export class WorldScene extends Phaser.Scene {
         continue;
       }
 
-      const mode = i % 13;
+      const mode = i % 16;
       if (mode === 0 || mode === 1) {
         this.drawFlowerPatch(point);
       } else if (mode === 2 || mode === 3 || mode === 4) {
@@ -756,10 +850,12 @@ export class WorldScene extends Phaser.Scene {
         this.drawFencePost(point);
       } else if (mode === 8) {
         this.drawTwig(point);
-      } else if (mode === 9 || mode === 10) {
+      } else if (mode === 9 || mode === 10 || mode === 12) {
         this.drawSmallTree(point);
-      } else if (mode === 11) {
+      } else if (mode === 11 || mode === 13 || mode === 14) {
         this.drawLargeTree(point);
+      } else if (mode === 15) {
+        this.drawReedLikeGrass({ x: point.x + 6, y: point.y - 2 });
       }
     }
 
@@ -775,11 +871,12 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawBush(point: Point): void {
-    this.addToLayer(this.decorLayer, this.add.ellipse(point.x + 1, point.y + 10, 24, 9, 0x1e2a20, 0.32));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x, point.y + 1, 12, 0x3f6138));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x - 6, point.y + 3, 7, 0x527d47));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 7, point.y + 4, 6, 0x36592f));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 2, point.y - 4, 5, 0x4a7442, 0.9));
+    this.addToLayer(this.decorLayer, this.add.ellipse(point.x + 1, point.y + 12, 30, 11, 0x1e2a20, 0.32));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x, point.y + 2, 14, 0x3f6138));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 7, point.y + 3, 9, 0x527d47));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 8, point.y + 5, 8, 0x355a30));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 1, point.y - 4, 7, 0x4a7442, 0.92));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 2, point.y - 7, 5, 0x5b8d4f, 0.72));
   }
 
   private drawRock(point: Point): void {
@@ -805,30 +902,33 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawSmallTree(point: Point): void {
-    this.addToLayer(this.decorLayer, this.add.ellipse(point.x + 1, point.y + 12, 30, 10, 0x212b22, 0.3));
-    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 9, 8, 14, 0x684a34));
-    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 5, 10, 4, 0x77553b));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x, point.y - 4, 14, 0x3b6135));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x - 8, point.y - 1, 9, 0x4c7443));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 8, point.y, 8, 0x355a30));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 1, point.y - 9, 6, 0x4a7442, 0.85));
+    this.addToLayer(this.decorLayer, this.add.ellipse(point.x + 1, point.y + 14, 34, 11, 0x212b22, 0.3));
+    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 10, 10, 16, 0x684a34));
+    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 5, 12, 4, 0x7d5a40));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x, point.y - 5, 16, 0x3b6135));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 9, point.y - 1, 10, 0x4c7443));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 9, point.y, 9, 0x355a30));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 1, point.y - 11, 7, 0x4a7442, 0.9));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 5, point.y - 8, 5, 0x5d8b51, 0.72));
   }
 
   private drawLargeTree(point: Point): void {
     // Big canopy tree spanning multiple tiles for scale variation.
-    this.addToLayer(this.decorLayer, this.add.ellipse(point.x + 2, point.y + 16, 46, 14, 0x1c251f, 0.34));
+    this.addToLayer(this.decorLayer, this.add.ellipse(point.x + 2, point.y + 19, 56, 18, 0x1c251f, 0.36));
 
-    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 14, 11, 19, 0x6b4d36));
-    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 7, 15, 5, 0x7e5a3f));
+    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 15, 13, 22, 0x6b4d36));
+    this.addToLayer(this.entityLayer, this.add.rectangle(point.x, point.y + 7, 17, 5, 0x7e5a3f));
 
-    this.addToLayer(this.entityLayer, this.add.circle(point.x, point.y - 10, 18, 0x365c32));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x - 13, point.y - 6, 13, 0x47733f));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 14, point.y - 5, 12, 0x2f512d));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x - 3, point.y - 20, 11, 0x436d3d));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 8, point.y - 17, 9, 0x3c6437));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x, point.y - 12, 22, 0x365c32));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 15, point.y - 7, 15, 0x47733f));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 16, point.y - 7, 14, 0x2f512d));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 4, point.y - 24, 13, 0x436d3d));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 10, point.y - 20, 11, 0x3c6437));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 18, point.y - 14, 9, 0x3f6a39));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 19, point.y - 14, 8, 0x345830));
 
-    this.addToLayer(this.entityLayer, this.add.circle(point.x - 6, point.y - 12, 5, 0x58854d, 0.75));
-    this.addToLayer(this.entityLayer, this.add.circle(point.x + 10, point.y - 11, 4, 0x58854d, 0.7));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x - 8, point.y - 15, 6, 0x58854d, 0.8));
+    this.addToLayer(this.entityLayer, this.add.circle(point.x + 10, point.y - 13, 5, 0x58854d, 0.75));
   }
 
   private drawSign(point: Point): void {
@@ -1008,6 +1108,79 @@ export class WorldScene extends Phaser.Scene {
       ageMs: 0,
       ttlMs
     });
+  }
+
+  private createAmbientMotes(): void {
+    this.ambientMotes = [];
+    for (let i = 0; i < 64; i += 1) {
+      const x = Phaser.Math.Between(16, WORLD_W - 16);
+      const y = Phaser.Math.Between(16, WORLD_H - 16);
+      const size = Phaser.Math.Between(1, 2);
+      const sprite = this.add.ellipse(x, y, size, size, i % 3 === 0 ? 0xd9e4b5 : 0xbcd2a1, 0.2).setDepth(4);
+      this.ambientMotes.push({
+        sprite,
+        baseX: x,
+        baseY: y,
+        driftX: Phaser.Math.FloatBetween(6, 16),
+        driftY: Phaser.Math.FloatBetween(4, 11),
+        phase: Phaser.Math.FloatBetween(0, Math.PI * 2)
+      });
+    }
+  }
+
+  private updateAmbientMotes(deltaMs: number, now: number): void {
+    const dt = deltaMs / 1000;
+    for (const mote of this.ambientMotes) {
+      mote.baseX += dt * mote.driftX;
+      mote.baseY += Math.sin((now * 0.0005) + mote.phase) * dt * mote.driftY;
+
+      if (mote.baseX > WORLD_W + 12) {
+        mote.baseX = -12;
+        mote.baseY = Phaser.Math.Between(14, WORLD_H - 14);
+      }
+      if (mote.baseY < -12) {
+        mote.baseY = WORLD_H + 12;
+      } else if (mote.baseY > WORLD_H + 12) {
+        mote.baseY = -12;
+      }
+
+      const twinkle = (Math.sin(now * 0.003 + mote.phase) + 1) * 0.5;
+      mote.sprite.x = mote.baseX;
+      mote.sprite.y = mote.baseY;
+      mote.sprite.setAlpha(0.08 + twinkle * 0.22);
+    }
+  }
+
+  private drawWaterFx(now: number): void {
+    this.waterFxGraphics.clear();
+    const wave = Math.sin(now * 0.003) * 0.5 + 0.5;
+    for (let i = 0; i < this.waterFxAnchors.length; i += 1) {
+      const anchor = this.waterFxAnchors[i];
+      const phase = now * 0.004 + i * 0.53;
+      const dx = Math.sin(phase) * 2.4;
+      const dy = Math.cos(phase * 0.9) * 1.8;
+      const alpha = 0.07 + ((Math.sin(phase * 1.5) + 1) * 0.5) * 0.16 + wave * 0.06;
+
+      this.waterFxGraphics.fillStyle(0xb8d8de, alpha);
+      this.waterFxGraphics.fillEllipse(anchor.x + dx, anchor.y + dy, 6, 2);
+      this.waterFxGraphics.fillStyle(0x7db5bf, alpha * 0.75);
+      this.waterFxGraphics.fillEllipse(anchor.x - dx * 0.7, anchor.y + dy * 0.5, 4, 1);
+    }
+  }
+
+  private drawAtmosphere(now: number): void {
+    this.atmosphereGraphics.clear();
+    const pulse = (Math.sin(now * 0.0008) + 1) * 0.5;
+    this.atmosphereGraphics.fillStyle(0xb6c18b, 0.035 + pulse * 0.02);
+    this.atmosphereGraphics.fillRect(0, 0, WORLD_W, WORLD_H);
+    this.atmosphereGraphics.fillStyle(0x24464d, 0.04);
+    this.atmosphereGraphics.fillRect(0, WORLD_H * 0.55, WORLD_W, WORLD_H * 0.45);
+
+    this.atmosphereGraphics.fillStyle(0x1d2b31, 0.08);
+    this.atmosphereGraphics.fillRect(0, 0, WORLD_W, 26);
+    this.atmosphereGraphics.fillRect(0, WORLD_H - 26, WORLD_W, 26);
+    this.atmosphereGraphics.fillRect(0, 0, 26, WORLD_H);
+    this.atmosphereGraphics.fillRect(WORLD_W - 26, 0, 26, WORLD_H);
   }
 
   private drawNpcs(): void {
